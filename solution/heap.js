@@ -89,4 +89,8 @@ module.exports = class Heap {
   isEmpty() {
     return this.values.length === 0;
   }
+
+  size() {
+    return this.values.length;
+  }
 };

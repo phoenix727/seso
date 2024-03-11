@@ -4,34 +4,48 @@ const Heap = require("./heap");
 
 // Print all entries, across all of the *async* sources, in chronological order.
 
-module.exports = async (logSources, printer) => {
-  const heap = new Heap();
+const PRELOAD_COUNT = 25;
+const logCounts = [];
 
-  // Populate the initial heap
+async function populateHeap(heap, logSources) {
+  const promises = [];
   for (let i = 0; i < logSources.length; i++) {
-    const log = await logSources[i].popAsync();
-    heap.add(log, i);
+    if (!logSources[i].drained) {
+      promises.push(addNextLogToHeap(heap, logSources[i], i));
+    }
   }
 
-  let topLog, newLog;
+  return Promise.all(promises);
+}
+
+async function addNextLogToHeap(heap, logSource, logSourceIndex) {
+  if (logSource.drained) return;
+
+  const log = await logSource.popAsync();
+
+  if (log) {
+    logCounts[logSourceIndex] += 1;
+    heap.add(log, logSourceIndex);
+  }
+}
+
+module.exports = async (logSources, printer) => {
+  const heap = new Heap();
+  for (let i = 0; i < logSources.length; i++) {
+    logCounts[i] = 0;
+  }
+
+  // Populate the initial heap
+  await populateHeap(heap, logSources);
 
   while (!heap.isEmpty()) {
     const logNode = heap.pop();
+    logCounts[logNode.logSourceIndex] -= 1;
     printer.print(logNode.log);
 
-    topLog = heap.peek();
-
-    // Shortcut the heap if the same log source is the best option
-    while (true) {
-      newLog = await logSources[logNode.logSourceIndex].popAsync();
-      if (newLog && topLog && newLog.date < topLog.log.date) {
-        printer.print(newLog);
-      } else {
-        break;
-      }
+    if (logCounts[logNode.logSourceIndex] < PRELOAD_COUNT) {
+      await populateHeap(heap, logSources);
     }
-
-    heap.add(newLog, logNode.logSourceIndex);
   }
 
   printer.done();
